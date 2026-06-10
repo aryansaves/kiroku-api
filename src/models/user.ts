@@ -132,7 +132,4 @@ const UserSchema = new Schema<IUser>(
   { timestamps: true }
 );
 
-UserSchema.index({ telegramId: 1 }, { unique: true });
-UserSchema.index({ username: 1 }, { unique: true });
-
 export const User = mongoose.model<IUser>("User", UserSchema);
