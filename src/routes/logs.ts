@@ -26,8 +26,14 @@ export default async function logRoutes(fastify: FastifyInstance) {
 
     const { type, page, limit } = parsedQuery.data;
 
+    const mediaFilterToken = type ? type : "all";
+    const cacheKey = `cache:logs:${username.toLowerCase()}:${mediaFilterToken}:${page}:${limit}`;
     try {
       // 1. Resolve username to find the parent owner's unique database ID
+      const cachedLogs = await fastify.redis.get(cacheKey);
+            if (cachedLogs) {
+              return reply.status(200).type("application/json").send(cachedLogs);
+            }
       const user = await User.findOne({ username: username.toLowerCase() });
       if (!user) {
         return reply.status(404).send({
@@ -54,17 +60,16 @@ export default async function logRoutes(fastify: FastifyInstance) {
         Log.countDocuments(queryFilter),
       ]);
 
-      return reply.status(200).send({
+      const responsePayload = {
         logs,
-        pagination: {
-          total: totalCount,
-          page,
-          limit,
-          totalPages: Math.ceil(totalCount / limit),
-        },
-      });
+        pagination: { total: totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) },
+      };
+
+      // Logs change more frequently than bio fields; apply a 5-minute TTL (300 seconds)
+      await fastify.redis.set(cacheKey, JSON.stringify(responsePayload), "EX", 300);
+
+      return reply.status(200).send(responsePayload);
     } catch (error) {
-      fastify.log.error({ err: error }, "Failed to fetch user activity timeline stream");
       return reply.status(500).send({ error: "Internal Server Error" });
     }
   });

@@ -5,9 +5,15 @@ export default async function userRoutes(fastify: FastifyInstance) {
   // GET /users/:username
   fastify.get("/:username", async (request, reply) => {
     const { username } = request.params as { username: string };
-
+    const cacheKey = `cache:profile:${username.toLowerCase()}`;
+    
     try {
       // Find user matching lowercase URL parameter criteria
+      const cachedProfile = await fastify.redis.get(cacheKey);
+      if (cachedProfile) {
+        return reply.status(200).type("application/json").send(cachedProfile);
+      }
+       
       const user = await User.findOne({ username: username.toLowerCase() })
         .select("-platforms.mal.accessToken -platforms.mal.refreshToken"); // Keep platform tokens strictly hidden
 
@@ -17,7 +23,7 @@ export default async function userRoutes(fastify: FastifyInstance) {
           message: `User profile '/u/${username}' does not exist.`,
         });
       }
-
+      await fastify.redis.set(cacheKey, JSON.stringify(user), "EX", 3600);
       return reply.status(200).send(user);
     } catch (error) {
       fastify.log.error({ err: error }, "Failed to fetch user profile metadata");

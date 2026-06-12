@@ -90,7 +90,7 @@ export default async function authRoutes(
       );
 
       // TODO: Save refresh token reference into Upstash Redis later in Phase 4
-
+      await fastify.redis.set(`refresh:${user._id}`,refreshToken, "EX", 2592000)
       return reply.status(200).send({
         accessToken,
         refreshToken,
@@ -119,6 +119,10 @@ export default async function authRoutes(
       const decoded = fastify.jwt.verify<{ userId: string }>(refreshToken);
       
       // TODO: Match string signature against Upstash Redis lookup storage value here in Phase 4
+      const storedToken = await fastify.redis.get(`refresh:${decoded.userId}`);
+      if (!storedToken || storedToken !== refreshToken) {
+        return reply.status(401).send({ error: "Session revoked or compromised" });
+      }
 
       const newAccessToken = fastify.jwt.sign(
         { userId: decoded.userId },
@@ -138,6 +142,17 @@ export default async function authRoutes(
   fastify.post("/logout", async (request, reply) => {
     // Session termination endpoint placeholder
     // TODO: Purge refresh token records from Redis cache matrix in Phase 4
-    return reply.status(200).send({ success: true, message: "Logged out clean." });
+    const { refreshToken } = request.body as { refreshToken: string };
+    if (!refreshToken) return reply.status(400).send({ error: "Missing identity context" });
+
+    try {
+      const decoded = fastify.jwt.verify<{ userId: string }>(refreshToken);
+      
+      // Purge session key from Redis storage
+      await fastify.redis.del(`refresh:${decoded.userId}`);
+      return reply.status(200).send({ success: true, message: "Logged out clean." });
+    } catch {
+          return reply.status(200).send({ success: true, message: "Session already expired." });
+        }
   });
 }

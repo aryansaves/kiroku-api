@@ -4,7 +4,8 @@ const schema = z.object({
   PORT: z.coerce.number().default(3000),
   MONGODB_URI: z.string().url(),
   JWT_SECRET: z.string().min(32),
-  TELEGRAM_BOT_TOKEN:z.string()
+  TELEGRAM_BOT_TOKEN: z.string(),
+  REDIS_URL:z.string().url()
 })
 const parsed = schema.safeParse(process.env)
 

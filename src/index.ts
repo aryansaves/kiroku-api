@@ -4,6 +4,7 @@ import mongodbPlugin from "./plugins/mongodb";
 import authRoutes from "./routes/auth";
 import userRoutes from "./routes/users";
 import logRoutes from "./routes/logs";
+import redisPlugin from "./plugins/redis"
 
 // 1. Initialize the core Fastify engine instance
 const fastify = Fastify({
@@ -20,6 +21,7 @@ async function bootServer() {
     // 2. Register the global database connection plugin first
     // Fastify waits for this to connect before processing downstream routes
     await fastify.register(mongodbPlugin);
+    await fastify.register(redisPlugin);
 
     // 3. Register Ecosystem Tools (e.g., JWT Engine Setup)
     await fastify.register(import("@fastify/jwt"), {
