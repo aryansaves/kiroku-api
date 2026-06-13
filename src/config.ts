@@ -8,8 +8,9 @@ const schema = z.object({
   REDIS_URL: z.string().url(),
   BOT_INTERNAL_SECRET: z.string(),
   LLM_API_KEY: z.string(),
-  TMDB_API_KEY: z.string(),
-  OMDB_API_KEY: z.string()
+  TMDB_API_KEY: z.string().optional().default(""),
+  OMDB_API_KEY: z.string(),
+  COMICVINE_API_KEY: z.string().optional().default(""),
 })
 const parsed = schema.safeParse(process.env)
 

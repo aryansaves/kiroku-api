@@ -4,7 +4,7 @@ import { User } from "../models/user";
 import { Log } from "../models/log";
 
 const logsQuerySchema = z.object({
-  type: z.enum(["anime", "movie", "book", "manga", "game", "music", "podcast"]).optional(),
+  type: z.enum(["anime", "movie", "series", "book", "manga", "comic"]).optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(20),
 });

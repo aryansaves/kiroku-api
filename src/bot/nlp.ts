@@ -1,11 +1,7 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import { env } from "../config";
 
-// Initialize the Gemini client using the environment key
-const ai = new GoogleGenAI({ apiKey: env.LLM_API_KEY });
-
 export interface LogPayload {
-  mediaType: "anime" | "movie" | "book" | "manga" | "game" | "music" | "podcast";
+  mediaType: "anime" | "movie" | "series" | "book" | "manga" | "comic";
   title: string | null;
   action: "log" | "update" | "query";
   status: "watching" | "completed" | "dropped" | "planned" | "rewatching";
@@ -20,77 +16,62 @@ export interface LogPayload {
   confidence: "high" | "low";
 }
 
-const systemInstruction = `
-You are an expert media journal logging assistant. Your job is to extract structured logging data from human messages.
-Analyze the user input text and map it to the requested JSON schema.
+const SYSTEM_PROMPT = `You are an expert media journal logging assistant. Extract structured logging data from the user's message and return ONLY a valid JSON object.
 
 Rules:
-1. Deduce the mediaType correctly based on context (e.g., "read" -> book/manga, "watched/finished" -> anime/movie, "played" -> game).
-2. If the user mentions a volume or chapter, it's 'manga' or 'book'. If episodes, it's 'anime'.
-3. Map status exactly to: watching, completed, dropped, planned, rewatching.
-4. Ratings must be scaled out of 10. If a user writes "4/5", normalize it to 8.
-5. If you cannot determine the title or the context is highly ambiguous, set confidence to "low" and title to null.
-`;
+1. Deduce mediaType from context: "read" → book/manga/comic, "watched/finished" → anime/movie/series, "played" → game.
+2. If the user mentions volume/chapter → manga, comic, or book. If episodes → anime or series.
+3. mediaType must be one of: anime, movie, series, book, manga, comic.
+4. status must be one of: watching, completed, dropped, planned, rewatching.
+5. If the user explicitly provides a rating (e.g. "4/5", "8/10", "9 out of 10"), extract it scaled to 0-10. If no rating is mentioned, set rating to null.
+6. If title is unclear or ambiguous, set confidence "low" and title null.
+7. Correct obvious spelling mistakes of well-known media (e.g. "Incepton" → "Inception"). Do not guess obscure titles.
+
+Return a JSON object with exactly this shape:
+{
+  "mediaType": "movie",
+  "title": "Movie Title",
+  "action": "log",
+  "status": "completed",
+  "progress": { "episode": null, "chapter": null, "page": null, "percentage": null },
+  "rating": null,
+  "notes": "optional notes here",
+  "confidence": "high"
+}`;
+
+const GROQ_MODEL = "llama-3.1-8b-instant";
 
 export async function parseUserMessage(messageText: string): Promise<LogPayload> {
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
-      contents: messageText,
-      config: {
-        systemInstruction,
-        // Enforce strict JSON output matching our exact TypeScript shape
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            mediaType: {
-              type: Type.STRING,
-              enum: ["anime", "movie", "book", "manga", "game", "music", "podcast"],
-            },
-            title: { type: Type.STRING, nullable: true },
-            action: { type: Type.STRING, enum: ["log", "update", "query"] },
-            status: {
-              type: Type.STRING,
-              enum: ["watching", "completed", "dropped", "planned", "rewatching"],
-            },
-            progress: {
-              type: Type.OBJECT,
-              properties: {
-                episode: { type: Type.INTEGER, nullable: true },
-                chapter: { type: Type.INTEGER, nullable: true },
-                page: { type: Type.INTEGER, nullable: true },
-                percentage: { type: Type.INTEGER, nullable: true },
-              },
-              required: ["episode", "chapter", "page", "percentage"],
-            },
-            rating: { type: Type.INTEGER, nullable: true },
-            notes: { type: Type.STRING, nullable: true },
-            confidence: { type: Type.STRING, enum: ["high", "low"] },
-          },
-          required: [
-            "mediaType",
-            "title",
-            "action",
-            "status",
-            "progress",
-            "rating",
-            "notes",
-            "confidence",
-          ],
-        },
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${env.LLM_API_KEY}`,
       },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: messageText },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.1,
+      }),
     });
 
-    const responseText = response.text;
-    if (!responseText) {
-      throw new Error("Empty response received from Gemini API");
+    if (!response.ok) {
+      const errText = await response.text().catch(() => "");
+      throw new Error(`Groq API returned ${response.status}: ${errText}`);
     }
 
-    return JSON.parse(responseText) as LogPayload;
+    const data = await response.json() as any;
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error("Empty response from Groq API");
+
+    return JSON.parse(content) as LogPayload;
   } catch (error) {
     console.error("NLP Pipeline Extraction Error:", error);
-    // Fallback safe payload structure if the API crashes or fails to compile
     return {
       mediaType: "anime",
       title: null,

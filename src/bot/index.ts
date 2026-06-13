@@ -1,7 +1,7 @@
 import { Bot } from "grammy";
 import { env } from "../config";
 import { commandsComposer } from "./handlers/command";
-import { messageComposer } from "./handlers/messages";
+import { messageComposer, callbackComposer } from "./handlers/messages";
 import type { FastifyInstance } from "fastify";
 
 export function initializeBot(fastify: FastifyInstance): Bot {
@@ -16,6 +16,7 @@ export function initializeBot(fastify: FastifyInstance): Bot {
 
   // Mount your modular orchestration pipelines
   bot.use(commandsComposer);
+  bot.use(callbackComposer);
   bot.use(messageComposer);  
 
   // Catch block to ensure runtime exceptions do not crash your global process thread

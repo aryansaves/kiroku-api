@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document, Types } from "mongoose";
 
-export type MediaType = "anime" | "movie" | "book" | "manga" | "game" | "music" | "podcast";
+export type MediaType = "anime" | "movie" | "series" | "book" | "manga" | "comic";
 export type LogStatus = "watching" | "completed" | "dropped" | "planned" | "rewatching";
 
 export interface ILog extends Document {
@@ -37,7 +37,7 @@ const LogSchema = new Schema<ILog>(
     },
     mediaType: {
       type: String,
-      enum: ["anime", "movie", "book", "manga", "game", "music", "podcast"],
+      enum: ["anime", "movie", "series", "book", "manga", "comic"],
       required: true,
     },
     title: {

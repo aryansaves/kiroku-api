@@ -6,7 +6,7 @@ import { env } from "../config";
 
 const internalLogSchema = z.object({
   telegramId: z.string(),
-  mediaType: z.enum(["anime", "movie", "book", "manga", "game", "music", "podcast"]),
+  mediaType: z.enum(["anime", "movie", "series", "book", "manga", "comic"]),
   status: z.enum(["watching", "completed", "dropped", "planned", "rewatching"]),
   title: z.string(),
   coverImage: z.string().nullable(),
@@ -23,6 +23,7 @@ const internalLogSchema = z.object({
     malId: z.number().nullable(),
     tmdbId: z.number().nullable(),
   }),
+  forceNew: z.boolean().optional(),
 });
 
 export default async function internalRoutes(fastify: FastifyInstance) {
@@ -57,29 +58,29 @@ export default async function internalRoutes(fastify: FastifyInstance) {
       // ==========================================
       
       // Look up if this user has already logged this specific canonical title before
-      const existingLog = await Log.findOne({ 
-        userId: user._id, 
-        title: logData.title 
-      });
-
-      if (existingLog) {
-        // If an entry exists, mutate the fields in place instead of creating a duplicate document
-        if (logData.rating !== null) existingLog.rating = logData.rating;
-        if (logData.notes !== null) existingLog.notes = logData.notes;
-        
-        // Only update progress parameters if the update provides explicit progress increments
-        if (logData.progress.episode || logData.progress.chapter || logData.progress.page) {
-          existingLog.progress = logData.progress;
-        }
-
-        // Save our changes back down to the existing document slot in Atlas
-        await existingLog.save();
-
-        return reply.status(200).send({
-          success: true,
-          logId: existingLog._id,
-          message: `Updated existing log entry for ${logData.title} successfully.`,
+      // Skip existing-entry update when forceNew is set (e.g. rewatch)
+      if (!logData.forceNew) {
+        const existingLog = await Log.findOne({
+          userId: user._id,
+          title: logData.title
         });
+
+        if (existingLog) {
+          if (logData.rating !== null) existingLog.rating = logData.rating;
+          if (logData.notes !== null) existingLog.notes = logData.notes;
+
+          if (logData.progress.episode || logData.progress.chapter || logData.progress.page) {
+            existingLog.progress = logData.progress;
+          }
+
+          await existingLog.save();
+
+          return reply.status(200).send({
+            success: true,
+            logId: existingLog._id,
+            message: `Updated existing log entry for ${logData.title} successfully.`,
+          });
+        }
       }
 
       // ==========================================
