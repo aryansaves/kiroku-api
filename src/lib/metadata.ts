@@ -1,9 +1,11 @@
+// src/lib/metadata.ts
 import { env } from "../config";
 import type { FastifyInstance } from "fastify";
 
-interface MetadataResult {
+export interface MetadataItem {
   canonicalTitle: string;
   coverImage: string | null;
+  mediaType: string;
   externalIds: {
     anilistId: number | null;
     malId: number | null;
@@ -11,133 +13,117 @@ interface MetadataResult {
   };
 }
 
-// Simple internal helper to normalize title strings into clean Redis keys
-function normalizeTitle(title: string): string {
-  return title.toLowerCase().trim().replace(/[\s\W]+/g, "-");
-}
-
-/**
- * Hits the public AniList GraphQL API to fetch anime/manga details
- */
-async function fetchFromAniList(title: string, mediaType: "anime" | "manga"): Promise<MetadataResult | null> {
+async function fetchFromAniList(title: string): Promise<MetadataItem[]> {
   const query = `
-    query ($search: String, $type: MediaType) {
-      Media (search: $search, type: $type) {
-        title { romaji english }
-        coverImage { large }
-        id
-        idMal
+    query ($search: String) {
+      Page(perPage: 5) {
+        media(search: $search) {
+          type
+          title { english romaji }
+          coverImage { large }
+          id
+          idMal
+        }
       }
     }
   `;
-
   try {
     const response = await fetch("https://graphql.anilist.co", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      body: JSON.stringify({
-        query,
-        variables: {
-          search: title,
-          type: mediaType === "anime" ? "ANIME" : "MANGA",
-        },
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, variables: { search: title } }),
     });
-
-    if (!response.ok) return null;
+    
+    if (!response.ok) return [];
     const json = await response.json() as any;
-    const media = json.data?.Media;
-    if (!media) return null;
-
-    return {
-      canonicalTitle: media.title.english || media.title.romaji,
-      coverImage: media.coverImage.large || null,
-      externalIds: {
-        anilistId: media.id || null,
-        malId: media.idMal || null,
-        tmdbId: null,
-      },
-    };
-  } catch {
-    return null;
+    const list = json.data?.Page?.media || [];
+    
+    return list.map((m: any) => ({
+      canonicalTitle: m.title.english || m.title.romaji,
+      coverImage: m.coverImage.large || null,
+      mediaType: m.type === "ANIME" ? "anime" : "manga",
+      externalIds: { anilistId: m.id, malId: m.idMal, tmdbId: null }
+    }));
+  } catch (err) {
+    console.error("AniList fetch error:", err);
+    return [];
   }
 }
 
-/**
- * Hits the TMDB REST API to fetch live-action movie/series details
- */
-async function fetchFromTMDB(title: string, mediaType: "movie" | "podcast"): Promise<MetadataResult | null> {
-  // If the mediaType maps to "movie", search movies; otherwise default to TV series lookups
-  const endpoint = mediaType === "movie" ? "search/movie" : "search/tv";
-  const url = `https://api.themoviedb.org/3/${endpoint}?query=${encodeURIComponent(title)}&api_key=${env.TMDB_API_KEY}`;
+async function fetchFromOMDB(title: string): Promise<MetadataItem[]> {
+  const url = `https://www.omdbapi.com/?apikey=${env.OMDB_API_KEY}&t=${encodeURIComponent(title)}`;
 
   try {
     const response = await fetch(url);
-    if (!response.ok) return null;
+    if (!response.ok) return [];
 
-    const json = await response.json() as any;
-    const result = json.results?.[0];
-    if (!result) return null;
+    const data = await response.json() as any;
+    if (data.Response !== "True") return [];
 
-    return {
-      canonicalTitle: result.title || result.name,
-      coverImage: result.poster_path ? `https://image.tmdb.org/t/p/w500${result.poster_path}` : null,
-      externalIds: {
-        anilistId: null,
-        malId: null,
-        tmdbId: result.id || null,
-      },
-    };
-  } catch {
-    return null;
+    return [{
+      canonicalTitle: data.Title,
+      coverImage: data.Poster && data.Poster !== "N/A" ? data.Poster : null,
+      mediaType: data.Type === "series" ? "movie" : "movie",
+      externalIds: { anilistId: null, malId: null, tmdbId: null }
+    }];
+  } catch (err) {
+    console.error("OMDB fetch error:", err);
+    return [];
   }
 }
 
-/**
- * Master controller orchestrating lookups, caching, and fail-safes
- */
-export async function fetchMetadata(
-  fastify: FastifyInstance,
-  title: string,
-  mediaType: "anime" | "movie" | "book" | "manga" | "game" | "music" | "podcast"
-): Promise<MetadataResult> {
-  const normalized = normalizeTitle(title);
-  const cacheKey = `cache:${mediaType}:${normalized}`;
-
-  // Fallback structural definition defaults
-  const fallbackResult: MetadataResult = {
-    canonicalTitle: title,
-    coverImage: null,
-    externalIds: { anilistId: null, malId: null, tmdbId: null },
-  };
+async function fetchFromTMDB(title: string): Promise<MetadataItem[]> {
+  const url = `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(title)}&api_key=${env.TMDB_API_KEY}&include_adult=false&language=en-US&page=1`;
 
   try {
-    // 1. Check Redis memory cache first
-    const cachedData = await fastify.redis.get(cacheKey);
-    if (cachedData) {
-      return JSON.parse(cachedData) as MetadataResult;
+    const response = await fetch(url, {
+      headers: { accept: "application/json" }
+    });
+    if (!response.ok) return [];
+
+    const json = await response.json() as any;
+    const list = json.results || [];
+
+    return list.slice(0, 5).map((r: any) => ({
+      canonicalTitle: r.title || r.original_title,
+      coverImage: r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : null,
+      mediaType: "movie",
+      externalIds: { anilistId: null, malId: null, tmdbId: r.id }
+    }));
+  } catch (err) {
+    console.error("TMDB fetch error:", err);
+    return [];
+  }
+}
+
+export async function searchMetadataPool(
+  fastify: FastifyInstance,
+  title: string,
+  hintType: string
+): Promise<MetadataItem[]> {
+  const normalized = title.toLowerCase().trim().replace(/[\s\W]+/g, "-");
+  const cacheKey = `search:${hintType}:${normalized}`;
+  
+  try {
+    const cached = await fastify.redis.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+
+    let results: MetadataItem[] = [];
+    if (hintType === "anime" || hintType === "manga") {
+      results = await fetchFromAniList(title);
+    } else {
+      results = await fetchFromOMDB(title);
+      if (results.length === 0) {
+        results = await fetchFromTMDB(title);
+      }
     }
 
-    let enrichment: MetadataResult | null = null;
-
-    // 2. Delegate queries dynamically based on category types
-    if (mediaType === "anime" || mediaType === "manga") {
-      enrichment = await fetchFromAniList(title, mediaType);
-    } else if (mediaType === "movie" || mediaType === "podcast") {
-      enrichment = await fetchFromTMDB(title, mediaType);
+    if (results.length > 0) {
+      await fastify.redis.set(cacheKey, JSON.stringify(results), "EX", 21600);
     }
-
-    // 3. Handle a successful lookup hit
-    if (enrichment) {
-      // Save data back to Redis with a 6-hour TTL expiration window
-      await fastify.redis.set(cacheKey, JSON.stringify(enrichment), "EX", 21600);
-      return enrichment;
-    }
-
-    // 4. Cache Miss + Remote failure: return un-enriched fallback parameters safely
-    return fallbackResult;
-  } catch (error) {
-    fastify.log.error({ err: error }, `Metadata enrichment pipeline encountered errors for: ${title}`);
-    return fallbackResult;
+    return results;
+  } catch (err) {
+    console.error("Metadata pool error:", err);
+    return [];
   }
 }

@@ -35,7 +35,7 @@ Rules:
 export async function parseUserMessage(messageText: string): Promise<LogPayload> {
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.1-flash-lite",
       contents: messageText,
       config: {
         systemInstruction,

@@ -26,46 +26,65 @@ const internalLogSchema = z.object({
 });
 
 export default async function internalRoutes(fastify: FastifyInstance) {
-  // POST /internal/logs
   fastify.post("/logs", async (request, reply) => {
-    // 1. Authenticate using the static master bot secret header
+    // 1. Authenticate via your master header secret
     const botSecretHeader = request.headers["x-bot-secret"];
     if (!botSecretHeader || botSecretHeader !== env.BOT_INTERNAL_SECRET) {
-      return reply.status(401).send({ error: "Unauthorized", message: "Invalid or missing bot secret header." });
+      return reply.status(401).send({ error: "Unauthorized" });
     }
 
-    // 2. Validate incoming structured log structure payload
+    // 2. Parse incoming payload variables
     const parseResult = internalLogSchema.safeParse(request.body);
     if (!parseResult.success) {
       return reply.status(400).send({ error: "Bad Request", details: parseResult.error.format() });
     }
 
     const logData = parseResult.data;
+
+    // 3. Rate limiting check
     const rateLimitKey = `ratelimit:${logData.telegramId}:logs`;
+    const currentRequestCount = await fastify.redis.incr(rateLimitKey);
+    if (currentRequestCount === 1) await fastify.redis.expire(rateLimitKey, 60);
+    if (currentRequestCount > 10) return reply.status(429).send({ error: "Too Many Requests" });
 
     try {
-      // 3. Redis Sliding Window Rate Limiter (Max 10 logs per 60 seconds)
-      const currentRequestCount = await fastify.redis.incr(rateLimitKey);
-      
-      if (currentRequestCount === 1) {
-        // Set a 60-second time-to-live expiration windows on the first increment hit
-        await fastify.redis.expire(rateLimitKey, 60);
-      }
+      // 4. Resolve the user from database
+      const user = await User.findOne({ telegramId: logData.telegramId });
+      if (!user) return reply.status(444).send({ error: "User profile not found." });
 
-      if (currentRequestCount > 10) {
-        return reply.status(429).send({
-          error: "Too Many Requests",
-          message: "Rate limit exceeded. Maximum 10 log actions per minute allowed.",
+      // ==========================================
+      // CRITICAL UPDATE LOGIC ENTERS HERE
+      // ==========================================
+      
+      // Look up if this user has already logged this specific canonical title before
+      const existingLog = await Log.findOne({ 
+        userId: user._id, 
+        title: logData.title 
+      });
+
+      if (existingLog) {
+        // If an entry exists, mutate the fields in place instead of creating a duplicate document
+        if (logData.rating !== null) existingLog.rating = logData.rating;
+        if (logData.notes !== null) existingLog.notes = logData.notes;
+        
+        // Only update progress parameters if the update provides explicit progress increments
+        if (logData.progress.episode || logData.progress.chapter || logData.progress.page) {
+          existingLog.progress = logData.progress;
+        }
+
+        // Save our changes back down to the existing document slot in Atlas
+        await existingLog.save();
+
+        return reply.status(200).send({
+          success: true,
+          logId: existingLog._id,
+          message: `Updated existing log entry for ${logData.title} successfully.`,
         });
       }
 
-      // 4. Resolve the Telegram User ID to an internal Mongoose MongoDB ObjectId
-      const user = await User.findOne({ telegramId: logData.telegramId });
-      if (!user) {
-        return reply.status(444).send({ error: "Not Found", message: "Telegram account not initialized inside database." });
-      }
-
-      // 5. Commit the polymorphic log document straight to collection storage
+      // ==========================================
+      // FALLBACK: NO EXISTING ENTRY FOUND (CREATE NEW)
+      // ==========================================
       const newLog = await Log.create({
         userId: user._id,
         mediaType: logData.mediaType,
@@ -78,14 +97,14 @@ export default async function internalRoutes(fastify: FastifyInstance) {
         externalIds: logData.externalIds,
       });
 
-      // 6. Return response to indicate successful log persistence
       return reply.status(201).send({
         success: true,
         logId: newLog._id,
-        message: `Logged entry for ${logData.title} completely.`,
+        message: `Created brand new log entry for ${logData.title}.`,
       });
+
     } catch (error) {
-      fastify.log.error({ err: error }, "Internal logging pipeline encounter failure");
+      fastify.log.error({ err: error }, "Logging engine encountered an internal execution failure.");
       return reply.status(500).send({ error: "Internal Server Error" });
     }
   });

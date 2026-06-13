@@ -6,6 +6,7 @@ import userRoutes from "./routes/users";
 import logRoutes from "./routes/logs";
 import redisPlugin from "./plugins/redis"
 import internalRoutes from "./routes/internal";
+import { initializeBot } from "./bot";
 
 // 1. Initialize the core Fastify engine instance
 const fastify = Fastify({
@@ -44,6 +45,14 @@ async function bootServer() {
 
     // Typecast log statement safely
     (fastify as any).log.info(`🚀 Kiroku API Server up and active on port: ${env.PORT}`);
+    const bot = initializeBot(fastify);
+    
+    // Non-blocking background thread start
+    bot.start({
+      onStart: (info) => {
+        fastify.log.info(`🤖 Grammy Bot worker listening actively under handle: @${info.username}`);
+      }
+    })
   } catch (error) {
     (fastify as any).log.error({ err: error }, "Critical application crash during boot sequencing");
     process.exit(1);
