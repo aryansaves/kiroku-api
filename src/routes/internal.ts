@@ -1,7 +1,7 @@
-import { FastifyInstance } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { User } from "../models/User";
-import { Log } from "../models/Log";
+import { User } from "../models/user";
+import { Log } from "../models/log";
 import { env } from "../config";
 
 const internalLogSchema = z.object({

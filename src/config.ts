@@ -5,7 +5,10 @@ const schema = z.object({
   MONGODB_URI: z.string().url(),
   JWT_SECRET: z.string().min(32),
   TELEGRAM_BOT_TOKEN: z.string(),
-  REDIS_URL:z.string().url()
+  REDIS_URL: z.string().url(),
+  BOT_INTERNAL_SECRET: z.string(),
+  LLM_API_KEY: z.string(),
+  TMDB_API_KEY:z.string()
 })
 const parsed = schema.safeParse(process.env)
 

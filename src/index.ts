@@ -5,6 +5,7 @@ import authRoutes from "./routes/auth";
 import userRoutes from "./routes/users";
 import logRoutes from "./routes/logs";
 import redisPlugin from "./plugins/redis"
+import internalRoutes from "./routes/internal";
 
 // 1. Initialize the core Fastify engine instance
 const fastify = Fastify({
@@ -32,7 +33,8 @@ async function bootServer() {
     await fastify.register(authRoutes, { prefix: "/auth" });
     await fastify.register(userRoutes, { prefix: "/users" }); // Mounts GET /users/:username
     await fastify.register(logRoutes, { prefix: "/users" });  // Mounts GET /users/:username/logs
-
+    await fastify.register(internalRoutes, { prefix: "/internal" });
+    
     // 5. Start the Network Network Listener Loop
     // Fly.io demands 0.0.0.0 as the host string to bind correctly inside Docker containers
     await fastify.listen({ 

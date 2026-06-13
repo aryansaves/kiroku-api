@@ -43,7 +43,7 @@ export default async function logRoutes(fastify: FastifyInstance) {
       }
 
       // 2. Build the query payload matching filters
-      const queryFilter: Record<string, unknown> = { userId: user._id };
+      const queryFilter: Record<string, unknown> = { userId: user._id, status: { $ne: "planned" }  };
       if (type) {
         queryFilter.mediaType = type;
       }
