@@ -122,15 +122,11 @@ export default async function authRoutes(
   const googleEnabled =
     !!env.GOOGLE_CLIENT_ID && !!env.GOOGLE_CLIENT_SECRET;
 
-  const apiRedirectUri = `${env.APP_URL.replace(/\/$/, "")}/auth/google/callback`
-    // The redirect_uri must point to the API, not the frontend
-    .replace(
-      env.APP_URL.replace(/\/$/, ""),
-      // Reconstruct API base: same host, port 3000 in dev
-      env.NODE_ENV === "production"
-        ? env.APP_URL.replace(/\/$/, "")
-        : `http://localhost:${env.PORT}`
-    );
+  function getApiRedirectUri(request: any) {
+    const protocol = request.headers['x-forwarded-proto'] || request.protocol || 'http';
+    const host = request.headers['x-forwarded-host'] || request.hostname;
+    return `${protocol}://${host}/auth/google/callback`;
+  }
 
   // ──────────────────────────────────────────────
   // TELEGRAM
@@ -205,7 +201,7 @@ export default async function authRoutes(
 
     const params = new URLSearchParams({
       client_id: env.GOOGLE_CLIENT_ID,
-      redirect_uri: apiRedirectUri,
+      redirect_uri: getApiRedirectUri(request),
       response_type: "code",
       scope: "openid email profile",
       access_type: "offline",
@@ -233,7 +229,7 @@ export default async function authRoutes(
     }
 
     try {
-      const { profile } = await exchangeGoogleCode(code, apiRedirectUri);
+      const { profile } = await exchangeGoogleCode(code, getApiRedirectUri(request));
 
       // ── Returning user ──
       const existingUser = await User.findOne({ googleId: profile.id });
