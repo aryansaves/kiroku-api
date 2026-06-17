@@ -1,4 +1,3 @@
-// src/bot/handlers/message.ts
 import { Composer, InlineKeyboard } from "grammy";
 import { parseUserMessage } from "../nlp";
 import { searchMetadataPool, type MetadataItem } from "../../lib/metadata";
@@ -26,8 +25,6 @@ async function postToInternal(payload: Record<string, unknown>) {
     body: JSON.stringify(payload),
   });
 }
-
-// ── HELPERS ──────────────────────────────────────────────────────────
 
 function ratingToStars(rating: number | null): string {
   if (rating === null || rating === undefined) return "";
@@ -83,9 +80,6 @@ export function buildPagination(page: number, totalPages: number, prefix: string
   return kbd;
 }
 
-// ── CALLBACK HANDLERS ────────────────────────────────────────────────
-
-// Post-select: note, rating, or skip
 callbackComposer.callbackQuery(/^postselect:(.+)$/, async (ctx) => {
   const action = ctx.match[1]!;
   const telegramIdStr = ctx.from.id.toString();
@@ -161,7 +155,6 @@ callbackComposer.callbackQuery(/^postselect:(.+)$/, async (ctx) => {
   }
 });
 
-// Disambiguation option selected
 callbackComposer.callbackQuery(/^disambig:(\d+)$/, async (ctx) => {
   const index = parseInt(ctx.match[1]!, 10);
   const telegramIdStr = ctx.from.id.toString();
@@ -191,7 +184,6 @@ callbackComposer.callbackQuery(/^disambig:(\d+)$/, async (ctx) => {
     mediaType: chosen.mediaType, externalIds: chosen.externalIds,
   };
 
-  // Post-select: prompt for note/rating
   await server.redis.set(stateKey, JSON.stringify({
     type: "POST_SELECT",
     payload: internalPayload,
@@ -216,7 +208,6 @@ callbackComposer.callbackQuery(/^disambig:(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// Disambiguation pagination
 callbackComposer.callbackQuery(/^searchpage:(\d+)$/, async (ctx) => {
   const page = parseInt(ctx.match[1]!, 10);
   const telegramIdStr = ctx.from.id.toString();
@@ -236,7 +227,6 @@ callbackComposer.callbackQuery(/^searchpage:(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// RELOG_DECISION callbacks
 callbackComposer.callbackQuery(/^relog:(.+)$/, async (ctx) => {
   const action = ctx.match[1]!;
   const telegramIdStr = ctx.from.id.toString();
@@ -277,7 +267,6 @@ callbackComposer.callbackQuery(/^relog:(.+)$/, async (ctx) => {
   }
 });
 
-// Confirm update
 callbackComposer.callbackQuery(/^confirm:(.+)$/, async (ctx) => {
   const answer = ctx.match[1]!;
   const telegramIdStr = ctx.from.id.toString();
@@ -301,7 +290,58 @@ callbackComposer.callbackQuery(/^confirm:(.+)$/, async (ctx) => {
   }
 });
 
-// Log page nav
+callbackComposer.callbackQuery("delete:confirm", async (ctx) => {
+  const telegramIdStr = ctx.from.id.toString();
+  const server = (ctx as any).fastifyApp;
+  const stateKey = getStateKey(telegramIdStr);
+  const raw = await server.redis.get(stateKey);
+  if (!raw) { await ctx.answerCallbackQuery({ text: "Session expired." }); await ctx.editMessageReplyMarkup(undefined); return; }
+  const state = JSON.parse(raw);
+  await server.redis.del(stateKey);
+
+  await Log.findByIdAndDelete(state.logId);
+  await ctx.editMessageText(`🗑 <b>Deleted:</b> ${escapeHtml(state.title)}`, { parse_mode: "HTML" });
+  await ctx.answerCallbackQuery({ text: "Deleted." });
+});
+
+callbackComposer.callbackQuery("delete:cancel", async (ctx) => {
+  const telegramIdStr = ctx.from.id.toString();
+  const server = (ctx as any).fastifyApp;
+  const stateKey = getStateKey(telegramIdStr);
+  await server.redis.del(stateKey);
+  await ctx.editMessageText("👌 Delete cancelled.");
+  await ctx.answerCallbackQuery();
+});
+
+callbackComposer.callbackQuery(/^deletepick:(.+)$/, async (ctx) => {
+  const logId = ctx.match[1]!;
+  const telegramIdStr = ctx.from.id.toString();
+  const server = (ctx as any).fastifyApp;
+  const stateKey = getStateKey(telegramIdStr);
+  const raw = await server.redis.get(stateKey);
+  if (!raw) { await ctx.answerCallbackQuery({ text: "Session expired." }); await ctx.editMessageReplyMarkup(undefined); return; }
+  const state = JSON.parse(raw);
+
+  const chosen = state.logs.find((l: any) => l._id === logId);
+  if (!chosen) { await ctx.answerCallbackQuery({ text: "Invalid." }); return; }
+
+  await server.redis.set(stateKey, JSON.stringify({
+    type: "CONFIRM_DELETE",
+    logId: chosen._id,
+    title: chosen.title,
+  }), "EX", 120);
+
+  const kbd = new InlineKeyboard()
+    .text("Yes, delete", "delete:confirm").row()
+    .text("Cancel", "delete:cancel");
+
+  await ctx.editMessageText(
+    `🗑 <b>Delete "${escapeHtml(chosen.title)}"?</b>\nThis cannot be undone.`,
+    { parse_mode: "HTML", reply_markup: kbd }
+  );
+  await ctx.answerCallbackQuery();
+});
+
 callbackComposer.callbackQuery("logpage:noop", async (ctx) => { await ctx.answerCallbackQuery(); });
 
 callbackComposer.callbackQuery(/^logpage:(\d+)$/, async (ctx) => {
@@ -331,10 +371,7 @@ callbackComposer.callbackQuery(/^logpage:(\d+)$/, async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 
-// Search page noop
 callbackComposer.callbackQuery("searchpage:noop", async (ctx) => { await ctx.answerCallbackQuery(); });
-
-// ── DISAMBIGUATION PAGE RENDER ───────────────────────────────────────
 
 const PER_SEARCH_PAGE = 5;
 
@@ -353,7 +390,6 @@ async function showDisambiguationPage(ctx: any, options: MetadataItem[], page: n
     ).row();
   });
 
-  // Add pagination nav row if needed
   if (totalPages > 1) {
     const navRow: { text: string; callback_data: string }[] = [];
     if (clamped > 0) navRow.push({ text: "◀ Prev", callback_data: `searchpage:${clamped - 1}` });
@@ -372,8 +408,6 @@ async function showDisambiguationPage(ctx: any, options: MetadataItem[], page: n
   }
 }
 
-// ── TEXT MESSAGE HANDLER ─────────────────────────────────────────────
-
 messageComposer.on("message:text", async (ctx) => {
   const messageText = ctx.message.text.trim();
   const telegramIdStr = ctx.from.id.toString();
@@ -381,9 +415,8 @@ messageComposer.on("message:text", async (ctx) => {
   const stateKey = getStateKey(telegramIdStr);
 
   try {
-    // ── MOVIE EDIT VIA /MovieTitle note: rating: ──────────────────
     if (messageText.startsWith("/")) {
-      const knownCommands = ["start", "username", "log", "history", "help"];
+      const knownCommands = ["start", "username", "log", "history", "help", "delete"];
       const firstWord = messageText.slice(1).split(/\s+/)[0]?.toLowerCase();
       if (firstWord && !knownCommands.includes(firstWord)) {
         await handleMovieEdit(ctx, messageText, telegramIdStr, server);
@@ -391,13 +424,11 @@ messageComposer.on("message:text", async (ctx) => {
       }
     }
 
-    // ── LAYER A: STATE MACHINE ────────────────────────────────────
     const activeStateRaw = await server.redis.get(stateKey);
 
     if (activeStateRaw) {
       const state = JSON.parse(activeStateRaw);
 
-      // AWAIT_NOTE — user is typing a note
       if (state.type === "AWAIT_NOTE") {
         await server.redis.del(stateKey);
         const payload = { ...state.payload, notes: messageText };
@@ -420,7 +451,6 @@ messageComposer.on("message:text", async (ctx) => {
         return;
       }
 
-      // AWAIT_RATING — user is typing a rating (0-10)
       if (state.type === "AWAIT_RATING") {
         await server.redis.del(stateKey);
         const ratingNum = parseInt(messageText, 10);
@@ -449,7 +479,6 @@ messageComposer.on("message:text", async (ctx) => {
         return;
       }
 
-      // Block text input for callback-driven states
       if (state.type === "CONFIRM_UPDATE" || state.type === "DISAMBIGUATE" || state.type === "RELOG_DECISION" || state.type === "POST_SELECT") {
         await ctx.reply("⚠️ Please use the buttons above.");
         return;
@@ -458,7 +487,6 @@ messageComposer.on("message:text", async (ctx) => {
       await server.redis.del(stateKey);
     }
 
-    // ── LAYER B: NLP ──────────────────────────────────────────────
     await ctx.replyWithChatAction("typing");
     const nlpResult = await parseUserMessage(messageText);
 
@@ -473,7 +501,6 @@ messageComposer.on("message:text", async (ctx) => {
       return;
     }
 
-    // Search directly — NLP already classifies the media type
     await proceedToSearch(ctx, server, stateKey, nlpResult, telegramIdStr);
 
   } catch (error) {
@@ -481,8 +508,6 @@ messageComposer.on("message:text", async (ctx) => {
     await ctx.reply("❌ Connection error inside the application state loop.");
   }
 });
-
-// ── PROCEED TO SEARCH ────────────────────────────────────────────────
 
 async function proceedToSearch(ctx: any, server: any, stateKey: string, nlpResult: any, telegramIdStr: string) {
   const matches = await searchMetadataPool(server, nlpResult.title, nlpResult.mediaType);
@@ -503,30 +528,28 @@ async function proceedToSearch(ctx: any, server: any, stateKey: string, nlpResul
       notes: nlpResult.notes, progress: nlpResult.progress, externalIds: m.externalIds,
     };
 
-    // Post-select prompt
-    await server.redis.set(stateKey, JSON.stringify({
-      type: "POST_SELECT", payload: internalPayload,
-      canonicalTitle: m.canonicalTitle, coverImage: m.coverImage,
-    }), "EX", 300);
+  await server.redis.set(stateKey, JSON.stringify({
+    type: "POST_SELECT", payload: internalPayload,
+    canonicalTitle: m.canonicalTitle, coverImage: m.coverImage,
+  }), "EX", 300);
 
-    const kbd = new InlineKeyboard()
-      .text("✏️ Add note", "postselect:note").row()
-      .text("⭐ Add rating", "postselect:rating").row()
-      .text("✅ Skip → Log", "postselect:skip").row()
-      .text("❌ Cancel", "postselect:cancel");
+  const kbd = new InlineKeyboard()
+    .text("✏️ Add note", "postselect:note").row()
+    .text("⭐ Add rating", "postselect:rating").row()
+    .text("✅ Skip → Log", "postselect:skip").row()
+    .text("❌ Cancel", "postselect:cancel");
 
-    let card = `🎬 <b>${escapeHtml(m.canonicalTitle)}</b>`;
-    if (m.year) card += ` (${m.year})`;
-    card += ` [${mediaTypeLabel(m.mediaType)}]`;
-    if (nlpResult.notes) card += `\n📝 <i>"${escapeHtml(nlpResult.notes)}"</i>`;
-    if (nlpResult.rating) card += `\n⭐ ${ratingToStars(nlpResult.rating)} (${nlpResult.rating}/10)`;
-    card += `\n\nAdd a note or rating, or skip to log now\.`;
+  let card = `🎬 <b>${escapeHtml(m.canonicalTitle)}</b>`;
+  if (m.year) card += ` (${m.year})`;
+  card += ` [${mediaTypeLabel(m.mediaType)}]`;
+  if (nlpResult.notes) card += `\n📝 <i>"${escapeHtml(nlpResult.notes)}"</i>`;
+  if (nlpResult.rating) card += `\n⭐ ${ratingToStars(nlpResult.rating)} (${nlpResult.rating}/10)`;
+  card += `\n\nAdd a note or rating, or skip to log now\.`;
 
     await ctx.reply(card, { parse_mode: "HTML", reply_markup: kbd });
     return;
   }
 
-  // Multiple matches — paginated
   await server.redis.set(stateKey, JSON.stringify({
     type: "DISAMBIGUATE",
     options: matches,
@@ -540,14 +563,11 @@ async function proceedToSearch(ctx: any, server: any, stateKey: string, nlpResul
   await showDisambiguationPage(ctx, matches, 0, nlpResult.title, false);
 }
 
-// ── MOVIE EDIT VIA /MovieTitle ───────────────────────────────────────
-
 async function handleMovieEdit(ctx: any, messageText: string, telegramIdStr: string, server: any) {
   const withoutSlash = messageText.slice(1);
   const user = await User.findOne({ telegramId: telegramIdStr });
   if (!user) { await ctx.reply("❌ Use /start first\."); return; }
 
-  // Extract rating if present anywhere in the text
   const ratingRe = /(?:^|\s)rating:\s*(\d+)/i;
   const ratingMatch = withoutSlash.match(ratingRe);
   const rating = ratingMatch ? parseInt(ratingMatch[1]!, 10) : null;
@@ -557,24 +577,18 @@ async function handleMovieEdit(ctx: any, messageText: string, telegramIdStr: str
     return;
   }
 
-  // Remove the rating:<N> part to get the search + note text
   let searchText = withoutSlash.replace(ratingRe, "").trim();
   if (!searchText) { await ctx.reply("❌ Usage: `/MovieTitle your note here rating: 8`"); return; }
 
-  // Split into words for progressive fuzzy matching
   const words = searchText.split(/\s+/);
   let matchedLog: any = null;
   let noteText = "";
 
-  // Try progressively shorter prefixes as the search term
-  // e.g. "batman begins was great" → try "batman begins was great", "batman begins was", "batman begins", "batman"
   for (let w = words.length; w >= 1; w--) {
     const candidate = words.slice(0, w).join(" ");
-    // Fuzzy: match any log whose title contains all these words (order-independent)
     const regexParts = words.slice(0, w).map((wd: string) => `(?=.*${wd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`);
     const fuzzyRe = new RegExp(`^${regexParts.join("")}.*$`, "i");
 
-    // Find logs matching this prefix
     const logs = await Log.find({
       userId: user._id,
       title: { $regex: fuzzyRe }
@@ -587,13 +601,11 @@ async function handleMovieEdit(ctx: any, messageText: string, telegramIdStr: str
     }
 
     if (logs.length > 1) {
-      // Multiple matches — show disambiguation
       const kbd = new InlineKeyboard();
       logs.slice(0, 5).forEach((l: any, i: number) => {
         kbd.text(l.title, `editpick:${l._id}`).row();
       });
 
-      // Store edit context in Redis
       await server.redis.set(getStateKey(telegramIdStr), JSON.stringify({
         type: "EDIT_PICK",
         noteText: words.slice(w).join(" ").trim(),
@@ -614,7 +626,6 @@ async function handleMovieEdit(ctx: any, messageText: string, telegramIdStr: str
     return;
   }
 
-  // Apply updates via findByIdAndUpdate (matchedLog is lean, no .save())
   const updateFields: Record<string, unknown> = {};
   if (noteText) updateFields.notes = noteText;
   if (rating !== null) updateFields.rating = rating;
@@ -635,7 +646,6 @@ async function handleMovieEdit(ctx: any, messageText: string, telegramIdStr: str
   await ctx.reply(response, { parse_mode: "HTML" });
 }
 
-// Callback for picking which log to edit from disambiguation
 callbackComposer.callbackQuery(/^editpick:(.+)$/, async (ctx) => {
   const logId = ctx.match[1]!;
   const telegramIdStr = ctx.from.id.toString();
@@ -671,8 +681,6 @@ callbackComposer.callbackQuery(/^editpick:(.+)$/, async (ctx) => {
   await ctx.editMessageText(response, { parse_mode: "HTML" });
   await ctx.answerCallbackQuery({ text: "Updated!" });
 });
-
-// ── SUCCESS REPLY ────────────────────────────────────────────────────
 
 async function sendSuccessReply(ctx: any, title: string, coverImage: string | null) {
   const caption = `✅ <b>Logged:</b> ${escapeHtml(title)}`;

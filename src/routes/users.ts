@@ -2,20 +2,18 @@ import type { FastifyInstance } from "fastify";
 import { User } from "../models/user";
 
 export default async function userRoutes(fastify: FastifyInstance) {
-  // GET /users/:username
   fastify.get("/:username", async (request, reply) => {
     const { username } = request.params as { username: string };
     const cacheKey = `cache:profile:${username.toLowerCase()}`;
     
     try {
-      // Find user matching lowercase URL parameter criteria
       const cachedProfile = await fastify.redis.get(cacheKey);
       if (cachedProfile) {
         return reply.status(200).type("application/json").send(cachedProfile);
       }
        
       const user = await User.findOne({ username: username.toLowerCase() })
-        .select("-platforms.mal.accessToken -platforms.mal.refreshToken"); // Keep platform tokens strictly hidden
+        .select("-platforms.mal.accessToken -platforms.mal.refreshToken");
 
       if (!user) {
         return reply.status(404).send({

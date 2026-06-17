@@ -11,6 +11,14 @@ const schema = z.object({
   TMDB_API_KEY: z.string().optional().default(""),
   OMDB_API_KEY: z.string(),
   COMICVINE_API_KEY: z.string().optional().default(""),
+  CORS_ORIGIN: z.string().optional().default("http://localhost:3001"),
+  ENABLE_BOT: z.coerce.boolean().default(false),
+  ENABLE_DEV_AUTH: z.coerce.boolean().default(false),
+  // Google OAuth — optional, leave blank to disable Google login
+  GOOGLE_CLIENT_ID: z.string().optional().default(""),
+  GOOGLE_CLIENT_SECRET: z.string().optional().default(""),
+  // The publicly-accessible frontend URL — used for OAuth redirect
+  APP_URL: z.string().optional().default("http://localhost:3001"),
 })
 const parsed = schema.safeParse(process.env)
 

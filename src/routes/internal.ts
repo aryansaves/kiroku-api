@@ -28,13 +28,11 @@ const internalLogSchema = z.object({
 
 export default async function internalRoutes(fastify: FastifyInstance) {
   fastify.post("/logs", async (request, reply) => {
-    // 1. Authenticate via your master header secret
     const botSecretHeader = request.headers["x-bot-secret"];
     if (!botSecretHeader || botSecretHeader !== env.BOT_INTERNAL_SECRET) {
       return reply.status(401).send({ error: "Unauthorized" });
     }
 
-    // 2. Parse incoming payload variables
     const parseResult = internalLogSchema.safeParse(request.body);
     if (!parseResult.success) {
       return reply.status(400).send({ error: "Bad Request", details: parseResult.error.format() });
@@ -42,23 +40,15 @@ export default async function internalRoutes(fastify: FastifyInstance) {
 
     const logData = parseResult.data;
 
-    // 3. Rate limiting check
     const rateLimitKey = `ratelimit:${logData.telegramId}:logs`;
     const currentRequestCount = await fastify.redis.incr(rateLimitKey);
     if (currentRequestCount === 1) await fastify.redis.expire(rateLimitKey, 60);
     if (currentRequestCount > 10) return reply.status(429).send({ error: "Too Many Requests" });
 
     try {
-      // 4. Resolve the user from database
       const user = await User.findOne({ telegramId: logData.telegramId });
       if (!user) return reply.status(444).send({ error: "User profile not found." });
 
-      // ==========================================
-      // CRITICAL UPDATE LOGIC ENTERS HERE
-      // ==========================================
-      
-      // Look up if this user has already logged this specific canonical title before
-      // Skip existing-entry update when forceNew is set (e.g. rewatch)
       if (!logData.forceNew) {
         const existingLog = await Log.findOne({
           userId: user._id,
@@ -83,9 +73,6 @@ export default async function internalRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // ==========================================
-      // FALLBACK: NO EXISTING ENTRY FOUND (CREATE NEW)
-      // ==========================================
       const newLog = await Log.create({
         userId: user._id,
         mediaType: logData.mediaType,

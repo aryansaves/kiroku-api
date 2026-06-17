@@ -1,4 +1,3 @@
-// src/lib/metadata.ts
 import { env } from "../config";
 import type { FastifyInstance } from "fastify";
 
@@ -139,7 +138,6 @@ export async function searchMetadataPool(
     const cached = await fastify.redis.get(cacheKey);
     if (cached) return JSON.parse(cached);
 
-    // Always search ALL APIs in parallel for cross-media results
     const all = await Promise.all([
       fetchFromOMDBSearch(title),
       fetchFromAniList(title),
@@ -147,7 +145,6 @@ export async function searchMetadataPool(
       fetchFromComicVine(title),
     ]);
 
-    // Merge, deduplicate by title (case-insensitive), and sort
     const seen = new Set<string>();
     const merged: MetadataItem[] = [];
 
@@ -161,7 +158,6 @@ export async function searchMetadataPool(
       }
     }
 
-    // Sort: matching hintType first, then by year desc (newer first)
     merged.sort((a, b) => {
       const aMatch = a.mediaType === hintType ? 0 : 1;
       const bMatch = b.mediaType === hintType ? 0 : 1;

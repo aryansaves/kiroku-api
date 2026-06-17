@@ -17,7 +17,7 @@ export interface ILog extends Document {
     page: number | null;
     percentage: number | null;
   };
-  typeSpecific: Record<string, unknown>; // Stores flexible metadata per media type
+  typeSpecific: Record<string, unknown>;
   externalIds: {
     malId: number | null;
     anilistId: number | null;
@@ -33,7 +33,7 @@ const LogSchema = new Schema<ILog>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
-      index: true, // Optimizes filtering logs by specific user profiles
+      index: true,
     },
     mediaType: {
       type: String,
@@ -72,7 +72,7 @@ const LogSchema = new Schema<ILog>(
       percentage: { type: Number, default: null },
     },
     typeSpecific: {
-      type: Schema.Types.Mixed, // Allows flexible, schema-less data shapes per media category
+      type: Schema.Types.Mixed,
       default: {},
     },
     externalIds: {
@@ -84,7 +84,6 @@ const LogSchema = new Schema<ILog>(
   { timestamps: true }
 );
 
-// Compound Index: Optimizes filtering a specific user's logs by media type or chronological sorting
 LogSchema.index({ userId: 1, mediaType: 1, createdAt: -1 });
 
 export const Log = mongoose.model<ILog>("Log", LogSchema);

@@ -19,10 +19,8 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
       });
     }
 
-    // Verify token using the pre-configured fastify.jwt engine
     const decoded = request.server.jwt.verify<{ userId: string }>(token);
     
-    // Mutate request context to pass the verified identity downward
     request.userId = decoded.userId;
   } catch (error) {
     return reply.status(401).send({
@@ -32,7 +30,6 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
   }
 }
 
-// Extend Fastify's core Request interface so TypeScript recognizes request.userId
 declare module "fastify" {
   interface FastifyRequest {
     userId: string;

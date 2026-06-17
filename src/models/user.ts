@@ -28,8 +28,12 @@ interface Theme {
 }
 
 export interface IUser extends Document {
-  telegramId: string;
+  // Auth providers — at least one will be set
+  telegramId: string | null;
   telegramUsername: string | null;
+  googleId: string | null;
+  authProviders: string[]; // e.g. ["telegram"], ["google"], ["telegram","google"]
+  // Profile
   username: string;
   displayName: string;
   bio: string;
@@ -50,14 +54,25 @@ export interface IUser extends Document {
 
 const UserSchema = new Schema<IUser>(
   {
+    // telegramId is now optional — sparse index allows multiple nulls
     telegramId: {
       type: String,
-      required: true,
-      unique: true,
+      default: null,
+      sparse: true,
     },
     telegramUsername: {
       type: String,
       default: null,
+    },
+    // googleId — sparse unique so multiple nulls are fine
+    googleId: {
+      type: String,
+      default: null,
+      sparse: true,
+    },
+    authProviders: {
+      type: [String],
+      default: [],
     },
     username: {
       type: String,
@@ -131,5 +146,9 @@ const UserSchema = new Schema<IUser>(
   },
   { timestamps: true }
 );
+
+// Sparse unique indexes allow many null values
+UserSchema.index({ telegramId: 1 }, { unique: true, sparse: true });
+UserSchema.index({ googleId: 1 }, { unique: true, sparse: true });
 
 export const User = mongoose.model<IUser>("User", UserSchema);

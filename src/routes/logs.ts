@@ -10,11 +10,9 @@ const logsQuerySchema = z.object({
 });
 
 export default async function logRoutes(fastify: FastifyInstance) {
-  // GET /users/:username/logs
   fastify.get("/:username/logs", async (request, reply) => {
     const { username } = request.params as { username: string };
 
-    // Validate incoming query parameters safely
     const parsedQuery = logsQuerySchema.safeParse(request.query);
     if (!parsedQuery.success) {
       return reply.status(400).send({
@@ -29,7 +27,6 @@ export default async function logRoutes(fastify: FastifyInstance) {
     const mediaFilterToken = type ? type : "all";
     const cacheKey = `cache:logs:${username.toLowerCase()}:${mediaFilterToken}:${page}:${limit}`;
     try {
-      // 1. Resolve username to find the parent owner's unique database ID
       const cachedLogs = await fastify.redis.get(cacheKey);
             if (cachedLogs) {
               return reply.status(200).type("application/json").send(cachedLogs);
@@ -42,21 +39,19 @@ export default async function logRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // 2. Build the query payload matching filters
-      const queryFilter: Record<string, unknown> = { userId: user._id, status: { $ne: "planned" }  };
+      const queryFilter: Record<string, unknown> = { userId: user._id };
       if (type) {
         queryFilter.mediaType = type;
       }
 
-      // 3. Execute query with skip/limit pagination mechanics using our compound index structure
       const skipAmount = (page - 1) * limit;
 
       const [logs, totalCount] = await Promise.all([
         Log.find(queryFilter)
-          .sort({ createdAt: -1 }) // Show latest entries first
+          .sort({ createdAt: -1 })
           .skip(skipAmount)
           .limit(limit)
-          .lean(), // Bypasses heavy Mongoose internal hydration tracking for pure read speed optimization
+          .lean(),
         Log.countDocuments(queryFilter),
       ]);
 
@@ -65,7 +60,6 @@ export default async function logRoutes(fastify: FastifyInstance) {
         pagination: { total: totalCount, page, limit, totalPages: Math.ceil(totalCount / limit) },
       };
 
-      // Logs change more frequently than bio fields; apply a 5-minute TTL (300 seconds)
       await fastify.redis.set(cacheKey, JSON.stringify(responsePayload), "EX", 300);
 
       return reply.status(200).send(responsePayload);
