@@ -3,7 +3,11 @@ import { Redis } from "ioredis";
 import { env } from "../config";
 
 export default fp(async (fastify) => {
-  const redis = new Redis(env.REDIS_URL);
+  const redis = new Redis(env.REDIS_URL, {
+    maxRetriesPerRequest: null,
+    commandTimeout: 5000,
+    enableReadyCheck: true,
+  });
 
   redis.on("connect", () => {
     fastify.log.info("💾 Redis datastore client connected cleanly");
