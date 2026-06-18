@@ -11,7 +11,7 @@ const schema = z.object({
   TMDB_API_KEY: z.string().optional().default(""),
   OMDB_API_KEY: z.string(),
   COMICVINE_API_KEY: z.string().optional().default(""),
-  CORS_ORIGIN: z.string().optional().default("http://localhost:3001"),
+  CORS_ORIGIN: z.string().optional().default("*"),
   ENABLE_BOT: z.coerce.boolean().default(false),
   ENABLE_DEV_AUTH: z.coerce.boolean().default(false),
   // Google OAuth — optional, leave blank to disable Google login

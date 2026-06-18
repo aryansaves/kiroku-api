@@ -24,8 +24,10 @@ const fastify = Fastify({
 async function bootServer() {
   try {
     await fastify.register(cors, {
-      origin: env.CORS_ORIGIN.split(",").map((origin) => origin.trim()),
-      credentials: false,
+      origin: env.CORS_ORIGIN === "*"
+        ? true  // allow all origins
+        : env.CORS_ORIGIN.split(",").map((o) => o.trim()),
+      credentials: true,
     });
 
     await fastify.register(mongodbPlugin);
