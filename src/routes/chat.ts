@@ -89,11 +89,16 @@ export default async function chatRoutes(
         return reply.status(404).send({ error: "User not found" });
       }
 
-      const rateLimitKey = `ratelimit:user:${userId}:chatlogs`;
-      const currentCount = await fastify.redis.incr(rateLimitKey);
-      if (currentCount === 1) await fastify.redis.expire(rateLimitKey, 60);
-      if (currentCount > 10) {
-        return reply.status(429).send({ error: "Too many requests. Please wait." });
+      // Rate limit — gracefully degrades if Redis is unavailable
+      try {
+        const rateLimitKey = `ratelimit:user:${userId}:chatlogs`;
+        const currentCount = await fastify.redis.incr(rateLimitKey);
+        if (currentCount === 1) await fastify.redis.expire(rateLimitKey, 60);
+        if (currentCount > 10) {
+          return reply.status(429).send({ error: "Too many requests. Please wait a moment." });
+        }
+      } catch (redisErr) {
+        fastify.log.warn({ err: redisErr }, "Redis rate-limit unavailable — skipping");
       }
 
       if (!logData.forceNew) {
