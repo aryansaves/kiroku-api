@@ -22,16 +22,16 @@ const logSchema = z.object({
   coverImage: z.string().nullable(),
   rating: z.number().min(0).max(10).nullable(),
   notes: z.string().max(2000).nullable(),
-  progress: z.object({
-    episode: z.number().nullable(),
-    chapter: z.number().nullable(),
-    page: z.number().nullable(),
-    percentage: z.number().nullable(),
-  }),
   externalIds: z.object({
-    anilistId: z.number().nullable(),
-    malId: z.number().nullable(),
-    tmdbId: z.number().nullable(),
+    anilistId: z.number().nullable().optional().default(null),
+    malId:     z.number().nullable().optional().default(null),
+    tmdbId:    z.number().nullable().optional().default(null),
+  }),
+  progress: z.object({
+    episode:    z.number().nullable().optional().default(null),
+    chapter:    z.number().nullable().optional().default(null),
+    page:       z.number().nullable().optional().default(null),
+    percentage: z.number().nullable().optional().default(null),
   }),
   forceNew: z.boolean().optional(),
 });
